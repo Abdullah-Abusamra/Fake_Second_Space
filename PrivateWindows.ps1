@@ -55,10 +55,11 @@ function Lock-Vhd($vhd) {     # only SYSTEM (and the boot loader) can touch the 
     Quiet icacls $dir /remove:g '*S-1-5-32-544'
 }
 function Open-Gate($c) {      # unlocks if locked; returns $true when the caller should re-lock afterwards
-    $locked = (Test-Path ([IO.Path]::GetPathRoot($c.vhd))) -and -not (Test-Path $c.vhd)
+    $locked = (Exists ([IO.Path]::GetPathRoot($c.vhd))) -and -not (Exists $c.vhd)
     if ($locked) { Unlock-Vhd $c.vhd }
     return $locked
 }
+function Exists($p) { try { [bool](Test-Path -LiteralPath $p -ErrorAction SilentlyContinue) } catch { $false } }
 function Row($k, $v) { Write-Host ('{0,-18}{1}' -f $k, $v) }
 function Get-MainEntry {      # your normal Windows boot entry (on a real partition, not a VHD, not recovery)
     $main = foreach ($b in ((bcdedit /enum osloader /v | Out-String) -split '(?m)^-{5,}\s*$')) {
@@ -159,7 +160,7 @@ assign letter=$letter
             if (Test-Pw $c) {
                 Clear-Leftovers $c.guid
                 $was = Open-Gate $c
-                if (-not (Test-Path $c.vhd)) { throw 'The drive holding the private Windows is not connected.' }
+                if (-not (Exists $c.vhd)) { throw 'The drive holding the private Windows is not connected.' }
                 $go = (Read-Host 'This restarts your PC right now. Save your work first. Type Y to continue') -eq 'Y'
                 try { if ($go) { Run bcdedit /bootsequence $c.guid } } finally { if ($was) { Lock-Vhd $c.vhd } }
                 if ($go) { $rc = 42; Restart-Computer -Force }
@@ -172,7 +173,7 @@ assign letter=$letter
             if (Test-Pw $c) {
                 Clear-Leftovers $c.guid
                 $was = Open-Gate $c
-                if (-not (Test-Path $c.vhd)) { throw 'The drive holding the private Windows is not connected.' }
+                if (-not (Exists $c.vhd)) { throw 'The drive holding the private Windows is not connected.' }
                 $cur = [regex]::Match((bcdedit /enum '{current}' /v | Out-String), 'identifier\s+(\{[0-9a-fA-F\-]{36}\})').Groups[1].Value
                 if ($cur -eq $c.guid) { throw 'You are already inside the private Windows. Use Back to return.' }
 
@@ -205,7 +206,7 @@ assign letter=$letter
             if (Test-Pw $c) {
                 Clear-Leftovers $c.guid
                 Open-Gate $c | Out-Null
-                if (-not (Test-Path $c.vhd)) { throw 'The drive holding the private Windows is not connected.' }
+                if (-not (Exists $c.vhd)) { throw 'The drive holding the private Windows is not connected.' }
                 Mount-DiskImage -ImagePath $c.vhd | Out-Null
                 $pv = Get-DiskImage -ImagePath $c.vhd | Get-Disk | Get-Partition | Get-Volume | Where-Object DriveLetter | Select-Object -First 1
                 if ($pv) { Write-Host "Mounted as $($pv.DriveLetter): - run Unmount when you are done."; explorer "$($pv.DriveLetter):\" }
@@ -256,8 +257,8 @@ assign letter=$letter
         Row 'Encryption' $(if (Test-Path (Join-Path $CfgDir 'vault.json')) { 'pvault initialised' } else { 'not initialised (plain mode)' })
         if ($c) {
             $root = [IO.Path]::GetPathRoot($c.vhd)
-            Row 'Drive' $(if (Test-Path $root) { "$root connected" } else { "$root NOT connected" })
-            Row 'Disk file' $(if (Test-Path $c.vhd) { 'plain .vhdx visible (unlocked / not encrypted)' } else { 'not visible (locked or encrypted - normal)' })
+            Row 'Drive' $(if (Exists $root) { "$root connected" } else { "$root NOT connected" })
+            Row 'Disk file' $(if (Exists $c.vhd) { 'plain .vhdx visible (unlocked / not encrypted)' } else { 'not visible (locked or encrypted - normal)' })
             Row 'Boot entry' $(if ($all -match [regex]::Escape($c.guid)) { 'present' } else { 'MISSING' })
             Row 'Boots into' $(if ($bm -match "(?m)^default\s+$([regex]::Escape($c.guid))") { 'PRIVATE Windows (Stay is ON - run Back inside it)' } else { 'normal Windows' })
         }
